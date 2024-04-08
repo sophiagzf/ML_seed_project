@@ -1,0 +1,79 @@
+---
+title: "eda"
+author: "Sophia Gan"
+date: "2024-04-08"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+data <- read.csv("train_data.csv")
+```
+
+```{r}
+library(corrplot)
+library(caret)
+library(ggplot2)
+library(glmnet)
+library(Matrix)
+library(ggfortify)
+```
+
+```{r}
+summary(data)
+str(data)
+head(data)
+```
+
+## except for AspectRation, ShapeFactor3, Compactness, others might need normalization
+```{r}
+for (variable in names(data)) {
+  plot <- ggplot(data, aes_string(x = variable)) +
+          geom_density(fill = "blue", alpha = 0.7) +
+          ggtitle(paste("Density of", variable)) +
+          xlab(variable) +
+          ylab("Density")
+  
+  print(plot)
+}
+```
+
+## correlation on the original dataset
+```{r}
+correlation_matrix <- cor(data)
+corrplot(correlation_matrix, method = "circle")
+```
+## reducing the data by removing the highly correlated ones, discuss on the cutoff
+## not sure which data should be standardized or normalized, initial guess is 
+```{r}
+highCor <- findCorrelation(correlation_matrix, cutoff = 0.75)
+data_reduced <- data[,-highCor]
+```
+
+## standardize before lasso/ridge and pca
+```{r}
+numeric_columns <- sapply(data, is.numeric)
+numeric_columns["Y"] <- FALSE
+numeric_columns
+data[numeric_columns] <- scale(data[numeric_columns])
+```
+
+## ridge or lasso (tried but failed)
+```{r}
+x <- as.matrix(data_reduced[, -which(names(data_reduced) == "Y")])
+y <- data_reduced$Y
+cv_fit <- cv.glmnet(x, y, alpha = 1)  # Use alpha=0 for ridge and alpha=1 for lasso
+```
+
+## pca on standardized dataset
+```{r}
+pca_result <- prcomp(data, center = TRUE, scale. = TRUE)
+summary(pca_result)
+autoplot(pca_result, data = data, color = 'Y')  # If 'Y' is the target variable
+plot(pca_result)
+pca_data <- as.data.frame(pca_result$x)
+```
+
