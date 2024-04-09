@@ -61,19 +61,39 @@ numeric_columns
 data[numeric_columns] <- scale(data[numeric_columns])
 ```
 
-## ridge or lasso (tried but failed)
+## lasso on standardized dataset
 ```{r}
-x <- as.matrix(data_reduced[, -which(names(data_reduced) == "Y")])
-y <- data_reduced$Y
-cv_fit <- cv.glmnet(x, y, alpha = 1)  # Use alpha=0 for ridge and alpha=1 for lasso
+library(glmnet)
+x <- as.matrix(data[, -which(names(data) == "Y")])
+y <- data$Y
+cv_fit <- cv.glmnet(x, y, alpha = 1) #alpha=1 for lasso
+best_lambda <- cv_fit$lambda.min
+best_lambda
+modeling <- glmnet(x, y, family = "gaussian", alpha = 1, lambda = best_lambda)
+coef <- coef(modeling)
+coef
+plot(cv_fit$glmnet.fit, "lambda", label = "TRUE")
+coef_table <- as.data.frame.matrix(coef)
+coef_table
 ```
 
 ## pca on standardized dataset
 ```{r}
+library("FactoMineR")
 pca_result <- prcomp(data, center = TRUE, scale. = TRUE)
 summary(pca_result)
 autoplot(pca_result, data = data, color = 'Y')  # If 'Y' is the target variable
 plot(pca_result)
 pca_data <- as.data.frame(pca_result$x)
+
+# normalized <- scale(data)
+# data.pca <- princomp(cor(normalized))
+# fviz_eig(data.pca, addlabels = TRUE)
+```
+
+```{r}
+data$Y <- factor(data$Y)
+ols.model <- glm(Y ~ ., family = "binomial", data = data)
+summary(ols.model)
 ```
 
