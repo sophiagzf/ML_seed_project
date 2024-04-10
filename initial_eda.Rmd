@@ -59,6 +59,7 @@ numeric_columns <- sapply(data, is.numeric)
 numeric_columns["Y"] <- FALSE
 numeric_columns
 data[numeric_columns] <- scale(data[numeric_columns])
+pca.data <- data[numeric_columns]
 ```
 
 ## lasso on standardized dataset
@@ -66,7 +67,7 @@ data[numeric_columns] <- scale(data[numeric_columns])
 library(glmnet)
 x <- as.matrix(data[, -which(names(data) == "Y")])
 y <- data$Y
-cv_fit <- cv.glmnet(x, y, alpha = 1) #alpha=1 for lasso
+cv_fit <- cv.glmnet(x, y, alpha = 1) #alpha = 1 for lasso
 best_lambda <- cv_fit$lambda.min
 best_lambda
 modeling <- glmnet(x, y, family = "gaussian", alpha = 1, lambda = best_lambda)
@@ -79,16 +80,16 @@ coef_table
 
 ## pca on standardized dataset
 ```{r}
-library("FactoMineR")
-pca_result <- prcomp(data, center = TRUE, scale. = TRUE)
+library(factoextra)
+pca_result <- prcomp(pca.data, center = TRUE, scale. = TRUE)
 summary(pca_result)
+fviz_eig(pca_result, addlabels = TRUE)
+fviz_pca_var(pca_result, col.var = "black")
+
 autoplot(pca_result, data = data, color = 'Y')  # If 'Y' is the target variable
 plot(pca_result)
 pca_data <- as.data.frame(pca_result$x)
-
-# normalized <- scale(data)
-# data.pca <- princomp(cor(normalized))
-# fviz_eig(data.pca, addlabels = TRUE)
+pca_data
 ```
 
 ```{r}
