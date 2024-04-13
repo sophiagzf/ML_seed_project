@@ -1,0 +1,217 @@
+---
+title: "ml_project"
+author: "Suyeon Song"
+date: "2024-04-08"
+output: html_document
+---
+
+# load dataset
+
+```{r}
+train <- read.csv("train_data.csv")
+test <- read.csv("test_data_x.csv")
+```
+
+```{r}
+head(train)
+```
+```{r}
+head(test)
+```
+
+# EDA
+
+```{r}
+y1_count <- sum(train$Y == "1")
+y0_count <- sum(train$Y == "0")
+
+y1_count
+y1_count/(y1_count+y0_count)
+
+y0_count
+y0_count/(y1_count+y0_count)
+
+y1_count + y0_count
+nrow(train)
+
+if ((y1_count + y0_count) == nrow(train)) {
+  print("The counts match the number of rows.")
+} else {
+  print("The counts do not match the number of rows.")
+}
+```
+# plot
+
+```{r}
+library(GGally)
+library(reshape2)
+print(sapply(train, function(x) sum(is.na(x))))
+for (col in names(train)) {
+  if (is.numeric(train[[col]])) {
+    print(ggplot(train, aes_string(x=col)) + 
+            geom_histogram(bins=30, fill="grey", color="black") + 
+      stat_bin(geom = "line", bins = 30, aes(y = ..count..), color = "red") + 
+      ggtitle(paste("Histogram of", col)) + theme_minimal())
+  }
+}
+
+```
+
+# Pairwise scatter plot
+
+```{r}
+print(ggpairs(train, title="Pairwise scatter plot of variables"))
+
+cor_matrix <- cor(train[sapply(train, is.numeric)])
+print(cor_matrix)
+
+print(ggplot(data = melt(cor_matrix), 
+             aes(Var1, Var2, fill=value)) + 
+        geom_tile() + 
+  scale_fill_gradient2(low = "blue", high = "red", mid = "white", 
+                       midpoint = 0, limit = c(-1,1), space = "Lab", 
+                       name="Pearson\nCorrelation") + 
+  theme_minimal() + 
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) + 
+  labs(x='', y=''))
+```
+
+# correlation plot
+
+```{r}
+library(corrplot)
+data <- read.csv("train_data.csv")
+cor_data <- cor(data)
+corrplot(cor_data, method = "circle")
+highCor <- findCorrelation(cor_data, cutoff = 0.8, verbose = TRUE)
+data <- data[-highCor]
+preProcValues <- preProcess(data, method = c("center", "scale"))
+data <- predict(preProcValues, data)
+```
+
+# standardize data
+
+```{r}
+train$Y <- as.factor(train$Y)
+numeric_data <- train[, sapply(train, is.numeric)]
+train_std <- as.data.frame(
+  scale(numeric_data[, !colnames(numeric_data) %in% "Y"]))
+train_std$Y <- train$Y
+```
+
+# split data
+
+```{r}
+set.seed(123456)
+library(caret)
+index <- createDataPartition(train_std$Y, p = 0.8, list = FALSE)
+train_df <- train_std[index, ]
+validation_df <- train_std[-index, ]
+train_control <- trainControl(method = "cv", number = 10)
+nrow(train_df)
+nrow(validation_df)
+nrow(validation_df)+nrow(train_df)
+```
+
+# run random forest
+
+```{r}
+model_rf <- train(Y~., 
+                  data = train_df, 
+                  method = "rf", 
+                  trControl = train_control)
+print(model_rf)
+predictions_train <- predict(model_rf, train_df)
+```
+
+# predict with validation df & test data
+
+```{r}
+predictions_val <- predict(model_rf, validation_df)
+confusionMatrix(predictions_val, validation_df$Y)
+predictions_test <- predict(model_rf, test)
+misclass_rate_rf <- 1 - sum(predictions_val == validation_df$Y) / nrow(validation_df)
+print(paste("Misclassification Rate (RF):", misclass_rate_rf))
+```
+
+# run xgboost
+
+```{r}
+library(xgboost)
+train_df2 <- train_df
+validation_df2 <- validation_df
+
+train_df2$Y <- as.numeric(as.factor(train_df2$Y)) - 1 
+features <- as.matrix(train_df2[, setdiff(names(train_df2), "Y")])
+labels <- train_df2$Y
+dtrain <- xgb.DMatrix(data = features, label = labels)
+
+validation_df2$Y <- as.numeric(as.factor(validation_df2$Y)) - 1
+validation_features <- as.matrix(validation_df2[, setdiff(names(validation_df2), "Y")])
+validation_labels <- validation_df2$Y
+dval <- xgb.DMatrix(data = validation_features, label = validation_labels)
+
+params <- list(
+  booster = "gbtree",
+  objective = "binary:logistic",
+  eval_metric = "logloss",
+  eta = 0.3,
+  gamma = 0,
+  max_depth = 6
+)
+
+cv_results <- xgb.cv(
+  params = params,
+  data = dtrain,
+  nrounds = 100,
+  nfold = 10,
+  showsd = TRUE,
+  stratified = TRUE,
+  print_every_n = 10,
+  early_stopping_rounds = 10,
+  maximize = FALSE
+)
+print(cv_results)
+
+final_model <- xgb.train(
+  params = params,
+  data = dtrain,
+  nrounds = cv_results$best_iteration
+)
+predictions <- predict(final_model, dval)
+predicted_labels <- max.col(predictions, ties.method = "first") - 1  
+accuracy <- sum(validation_labels == predicted_labels) / length(validation_labels)
+print(paste("Accuracy:", accuracy))
+misclass_rate_xgb <- 1 - accuracy
+print(paste("Misclassification Rate (XGBoost):", misclass_rate_xgb))
+
+```
+
+
+
+# svm
+
+```{r}
+library(e1071)
+data <- train
+data[,-which(names(data) == "Y")] <- scale(data[,-which(names(data) == "Y")])
+index <- sample(1:nrow(data), round(0.8 * nrow(data)))
+train_data <- data[index, ]
+validation_data <- data[-index, ]
+svm_model <- svm(Y ~ ., data = train_data, 
+                 kernel="radial", cost=10, gamma=0.1)
+predictions <- predict(svm_model, 
+                       newdata=validation_data[,-which(names(validation_data) == "Y")])
+accuracy <- sum(predictions == validation_data$Y) / nrow(validation_data)
+print(paste("Accuracy:", accuracy))
+conf_matrix <- table(Predicted = predictions, Actual = validation_data$Y)
+print(conf_matrix)
+misclass_rate_svm <- 1 - accuracy
+print(paste("Misclassification Rate (SVM):", misclass_rate_svm))
+
+```
+
+
+
+
+
