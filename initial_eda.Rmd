@@ -81,6 +81,7 @@ coef_table
 ## pca on standardized dataset
 ```{r}
 library(factoextra)
+library(pls)
 pca_result <- prcomp(pca.data, center = TRUE, scale. = TRUE)
 summary(pca_result)
 fviz_eig(pca_result, addlabels = TRUE)
@@ -90,6 +91,11 @@ autoplot(pca_result, data = data, color = 'Y')  # If 'Y' is the target variable
 plot(pca_result)
 pca_data <- as.data.frame(pca_result$x)
 pca_data
+
+pcr.data <- data
+pcr.data$Y <- as.numeric(pcr.data$Y)
+pcr.fit <- pcr(Y~., data = pcr.data, scale = TRUE, validation = "CV")
+summary(pcr.fit)
 ```
 
 ```{r}
@@ -97,4 +103,13 @@ data$Y <- factor(data$Y)
 ols.model <- glm(Y ~ ., family = "binomial", data = data)
 summary(ols.model)
 ```
+
+# how to choose cut-off?
+# random forest/ svm/ clustering (k-means)
+# supervised vs. unsupervised (how to estimate accuracy?)
+# use cross-validation 
+# variable selection (lasso) ?
+# try modeling for random forest, svm, and clustering with variables 1) from correlation and 2) from lasso
+# how to interprete pca result? what does it mean by pc1, pc2? does it have to do with variable? 
+
 
