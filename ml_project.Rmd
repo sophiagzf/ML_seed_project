@@ -13,6 +13,12 @@ test <- read.csv("test_data_x.csv")
 ```
 
 ```{r}
+reduced_data_train <- train[c("Area", "MinorAxisLength", "ShapeFactor2", "ShapeFactor3", "Y")]
+reduced_data_test <- test[c("Area", "MinorAxisLength", "ShapeFactor2", "ShapeFactor3")]
+```
+
+
+```{r}
 head(train)
 ```
 ```{r}
@@ -40,7 +46,13 @@ if ((y1_count + y0_count) == nrow(train)) {
   print("The counts do not match the number of rows.")
 }
 ```
-# plot
+# Variable type
+
+```{r}
+str(train)
+```
+
+# Distribution plots
 
 ```{r}
 library(GGally)
@@ -57,7 +69,7 @@ for (col in names(train)) {
 
 ```
 
-# Pairwise scatter plot
+# Pairwise scatter plot (Relationships)
 
 ```{r}
 print(ggpairs(train, title="Pairwise scatter plot of variables"))
@@ -80,6 +92,7 @@ print(ggplot(data = melt(cor_matrix),
 
 ```{r}
 library(corrplot)
+library(caret)
 data <- read.csv("train_data.csv")
 cor_data <- cor(data)
 corrplot(cor_data, method = "circle")
@@ -89,7 +102,7 @@ preProcValues <- preProcess(data, method = c("center", "scale"))
 data <- predict(preProcValues, data)
 ```
 
-# standardize data
+# Standardize data
 
 ```{r}
 train$Y <- as.factor(train$Y)
@@ -99,7 +112,24 @@ train_std <- as.data.frame(
 train_std$Y <- train$Y
 ```
 
-# split data
+# Distribution plots with standardized data
+
+```{r}
+library(GGally)
+library(reshape2)
+print(sapply(train_std, function(x) sum(is.na(x))))
+for (col in names(train_std)) {
+  if (is.numeric(train_std[[col]])) {
+    print(ggplot(train_std, aes_string(x=col)) + 
+            geom_histogram(bins=30, fill="grey", color="black") + 
+      stat_bin(geom = "line", bins = 30, aes(y = ..count..), color = "red") + 
+      ggtitle(paste("Histogram of", col)) + theme_minimal())
+  }
+}
+
+```
+
+# Split the original data
 
 ```{r}
 set.seed(123456)
@@ -113,10 +143,35 @@ nrow(validation_df)
 nrow(validation_df)+nrow(train_df)
 ```
 
+
+# Split the reduced data
+
+```{r}
+reduced_data_train$Y <- as.factor(reduced_data_train$Y)
+numeric_data <- reduced_data_train[, sapply(reduced_data_train, is.numeric)]
+reduced_data_train_std <- as.data.frame(
+  scale(numeric_data[, !colnames(numeric_data) %in% "Y"]))
+reduced_data_train_std$Y <- reduced_data_train$Y
+```
+
+
+
+```{r}
+set.seed(123456)
+library(caret)
+index <- createDataPartition(reduced_data_train_std$Y, p = 0.8, list = FALSE)
+reduced_data_train_df <- reduced_data_train_std[index, ]
+reduced_data_val_df <- reduced_data_train_std[-index, ]
+train_control <- trainControl(method = "cv", number = 10)
+nrow(reduced_data_train_df)
+nrow(reduced_data_val_df)
+nrow(reduced_data_val_df)+nrow(reduced_data_train_df)
+```
+
 # run random forest
 
 ```{r}
-model_rf <- train(Y~., 
+model_rf <- train(Y~ ., 
                   data = train_df, 
                   method = "rf", 
                   trControl = train_control)
@@ -129,10 +184,28 @@ predictions_train <- predict(model_rf, train_df)
 ```{r}
 predictions_val <- predict(model_rf, validation_df)
 confusionMatrix(predictions_val, validation_df$Y)
-predictions_test <- predict(model_rf, test)
 misclass_rate_rf <- 1 - sum(predictions_val == validation_df$Y) / nrow(validation_df)
 print(paste("Misclassification Rate (RF):", misclass_rate_rf))
 ```
+
+
+# Run rf w/ reduced dataset
+```{r}
+model_rf <- train(Y~., 
+                  data = reduced_data_train_df, 
+                  method = "rf", 
+                  trControl = train_control)
+print(model_rf)
+predictions_train <- predict(model_rf, reduced_data_train_df)
+```
+
+```{r}
+predictions_val <- predict(model_rf, reduced_data_val_df)
+confusionMatrix(predictions_val, reduced_data_val_df$Y)
+misclass_rate_rf <- 1 - sum(predictions_val == reduced_data_val_df$Y) / nrow(reduced_data_val_df)
+print(paste("Misclassification Rate (RF):", misclass_rate_rf))
+```
+
 
 # run xgboost
 
@@ -189,6 +262,58 @@ print(paste("Misclassification Rate (XGBoost):", misclass_rate_xgb))
 
 
 
+# Run xgboost w/ reduced dataset
+
+```{r}
+library(xgboost)
+
+
+reduced_data_train_df$Y <- as.numeric(as.factor(reduced_data_train_df$Y)) - 1
+features <- as.matrix(reduced_data_train_df[, setdiff(names(reduced_data_train_df), "Y")])
+labels <- reduced_data_train_df$Y
+dtrain <- xgb.DMatrix(data = features, label = labels)
+
+reduced_data_val_df$Y <- as.numeric(as.factor(reduced_data_val_df$Y)) - 1
+validation_features <- as.matrix(reduced_data_val_df[, setdiff(names(reduced_data_val_df), "Y")])
+validation_labels <- reduced_data_val_df$Y
+dval <- xgb.DMatrix(data = validation_features, label = validation_labels)
+
+params <- list(
+  booster = "gbtree",
+  objective = "binary:logistic",
+  eval_metric = "logloss",
+  eta = 0.3,
+  gamma = 0,
+  max_depth = 6
+)
+
+cv_results <- xgb.cv(
+  params = params,
+  data = dtrain,
+  nrounds = 1000,
+  nfold = 10,
+  showsd = TRUE,
+  stratified = TRUE,
+  print_every_n = 10,
+  early_stopping_rounds = 10,
+  maximize = FALSE
+)
+print(cv_results)
+
+final_model <- xgb.train(
+  params = params,
+  data = dtrain,
+  nrounds = cv_results$best_iteration
+)
+predictions <- predict(final_model, dval)
+predicted_labels <- max.col(predictions, ties.method = "first") - 1  
+accuracy <- sum(validation_labels == predicted_labels) / length(validation_labels)
+print(paste("Accuracy:", accuracy))
+misclass_rate_xgb <- 1 - accuracy
+print(paste("Misclassification Rate (XGBoost):", misclass_rate_xgb))
+
+```
+
 # svm
 
 ```{r}
@@ -209,9 +334,69 @@ print(conf_matrix)
 misclass_rate_svm <- 1 - accuracy
 print(paste("Misclassification Rate (SVM):", misclass_rate_svm))
 
+test_data_preprocessed <- scale(test[, sapply(test, is.numeric)])
+svm_predictions_test <- predict(svm_model, newdata=test_data_preprocessed)
+svm_predictions_test
+
+
 ```
 
 
 
+```{r}
+library(cluster)
+set.seed(123456)
+library(factoextra)
 
+data_for_clustering <- scale(train[, sapply(train, is.numeric)])
+wss <- (nrow(data_for_clustering)-1)*sum(apply(data_for_clustering,2,var))
+for (i in 2:15) {
+  set.seed(123)
+  wss[i] <- sum(kmeans(data_for_clustering, centers=i)$withinss)
+}
+plot(1:15, wss, type="b", 
+     xlab="Number of Clusters", 
+     ylab="Within groups sum of squares")
+k <- 2
+km_out <- kmeans(data_for_clustering, 
+                 centers=k, nstart=25)
+train$cluster <- as.factor(km_out$cluster)
+table(train$cluster)
+fviz_cluster(km_out, data = data_for_clustering)
+
+
+```
+
+# svm with reduced data 
+```{r}
+svm_model_radical <- svm(Y ~ ., data = train_data, kernel="radial", cost=1000, gamma=0.1)
+svm_model_poly <- svm(Y ~ ., data = train_data, kernel="polynomial", cost=1000, gamma=0.1)
+svm_model_linear <- svm(Y ~ ., data = train_data, kernel="linear", cost=1000, gamma=0.1)
+
+predictions_radical <- predict(svm_model_radical, 
+                       newdata=validation_df[,-which(names(validation_df) == "Y")])
+predictions_poly <- predict(svm_model_poly, 
+                       newdata=validation_df[,-which(names(validation_df) == "Y")])
+predictions_linear <- predict(svm_model_linear, 
+                       newdata=validation_df[,-which(names(validation_df) == "Y")])
+
+accuracy_radical <- sum(predictions_radical == validation_df$Y) / nrow(validation_df)
+print(paste("Accuracy:", accuracy))
+
+accuracy_poly <- sum(predictions_poly == validation_df$Y) / nrow(validation_df)
+print(paste("Accuracy:", accuracy))
+
+accuracy_linear <- sum(predictions_linear == validation_df$Y) / nrow(validation_df)
+print(paste("Accuracy:", accuracy))
+
+conf_matrix <- table(Predicted = predictions_radical, Actual = validation_df$Y)
+print(conf_matrix)
+misclass_rate_svm <- 1 - accuracy
+print(paste("Misclassification Rate (SVM):", misclass_rate_svm))
+
+test_data_preprocessed <- scale(test[, sapply(test, is.numeric)])
+svm_predictions_test <- predict(svm_model, newdata=test_data_preprocessed)
+svm_predictions_test
+
+```
 
