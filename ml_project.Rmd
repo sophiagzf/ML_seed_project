@@ -236,7 +236,7 @@ params <- list(
 cv_results <- xgb.cv(
   params = params,
   data = dtrain,
-  nrounds = 100,
+  nrounds = 1000,
   nfold = 10,
   showsd = TRUE,
   stratified = TRUE,
@@ -259,7 +259,6 @@ misclass_rate_xgb <- 1 - accuracy
 print(paste("Misclassification Rate (XGBoost):", misclass_rate_xgb))
 
 ```
-
 
 
 # Run xgboost w/ reduced dataset
@@ -313,8 +312,42 @@ misclass_rate_xgb <- 1 - accuracy
 print(paste("Misclassification Rate (XGBoost):", misclass_rate_xgb))
 
 ```
+# svm 
 
-# svm
+```{r}
+svm_model_radical <- svm(Y ~ ., data = train_data, kernel="radial", cost=1000, gamma=0.1)
+svm_model_poly <- svm(Y ~ ., data = train_data, kernel="polynomial", cost=1000, gamma=0.1)
+svm_model_linear <- svm(Y ~ ., data = train_data, kernel="linear", cost=1000, gamma=0.1)
+
+predictions_radical <- predict(svm_model_radical, 
+                       newdata=validation_df[,-which(names(validation_df) == "Y")])
+predictions_poly <- predict(svm_model_poly, 
+                       newdata=validation_df[,-which(names(validation_df) == "Y")])
+predictions_linear <- predict(svm_model_linear, 
+                       newdata=validation_df[,-which(names(validation_df) == "Y")])
+
+accuracy_radical <- sum(predictions_radical == validation_df$Y) / nrow(validation_df)
+print(paste("Accuracy of SVM model with Radical:", accuracy_radical))
+
+accuracy_poly <- sum(predictions_poly == validation_df$Y) / nrow(validation_df)
+print(paste("Accuracy of SVM model with Polynomial:", accuracy_poly))
+
+accuracy_linear <- sum(predictions_linear == validation_df$Y) / nrow(validation_df)
+print(paste("Accuracy of SVM model with Linear:", accuracy_linear))
+
+conf_matrix <- table(Predicted = predictions_radical, Actual = validation_df$Y)
+print(conf_matrix)
+misclass_rate_svm <- 1 - accuracy
+print(paste("Misclassification Rate (SVM):", misclass_rate_svm))
+
+test_data_preprocessed <- scale(test[, sapply(test, is.numeric)])
+svm_predictions_test <- predict(svm_model, newdata=test_data_preprocessed)
+svm_predictions_test
+
+```
+
+
+# SVM
 
 ```{r}
 library(e1071)
@@ -341,7 +374,7 @@ svm_predictions_test
 
 ```
 
-
+# K-clustering
 
 ```{r}
 library(cluster)
@@ -364,39 +397,4 @@ train$cluster <- as.factor(km_out$cluster)
 table(train$cluster)
 fviz_cluster(km_out, data = data_for_clustering)
 
-
 ```
-
-# svm with reduced data 
-```{r}
-svm_model_radical <- svm(Y ~ ., data = train_data, kernel="radial", cost=1000, gamma=0.1)
-svm_model_poly <- svm(Y ~ ., data = train_data, kernel="polynomial", cost=1000, gamma=0.1)
-svm_model_linear <- svm(Y ~ ., data = train_data, kernel="linear", cost=1000, gamma=0.1)
-
-predictions_radical <- predict(svm_model_radical, 
-                       newdata=validation_df[,-which(names(validation_df) == "Y")])
-predictions_poly <- predict(svm_model_poly, 
-                       newdata=validation_df[,-which(names(validation_df) == "Y")])
-predictions_linear <- predict(svm_model_linear, 
-                       newdata=validation_df[,-which(names(validation_df) == "Y")])
-
-accuracy_radical <- sum(predictions_radical == validation_df$Y) / nrow(validation_df)
-print(paste("Accuracy:", accuracy))
-
-accuracy_poly <- sum(predictions_poly == validation_df$Y) / nrow(validation_df)
-print(paste("Accuracy:", accuracy))
-
-accuracy_linear <- sum(predictions_linear == validation_df$Y) / nrow(validation_df)
-print(paste("Accuracy:", accuracy))
-
-conf_matrix <- table(Predicted = predictions_radical, Actual = validation_df$Y)
-print(conf_matrix)
-misclass_rate_svm <- 1 - accuracy
-print(paste("Misclassification Rate (SVM):", misclass_rate_svm))
-
-test_data_preprocessed <- scale(test[, sapply(test, is.numeric)])
-svm_predictions_test <- predict(svm_model, newdata=test_data_preprocessed)
-svm_predictions_test
-
-```
-
