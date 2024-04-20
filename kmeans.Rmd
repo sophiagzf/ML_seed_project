@@ -1,0 +1,57 @@
+---
+title: "kmeans"
+author: "Sophia Gan"
+date: "2024-04-20"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+library(tidyverse)
+library(cluster)  # For silhouette analysis
+library(factoextra)  # For visualizing clusters
+
+# Read the dataset
+data_ori <- read_csv("train_data.csv")
+
+# Remove the class label if it exists (assuming 'Y' is the class label)
+data <- data_ori[, -which(names(data_ori) == "Y")]
+
+# Standardize the data
+data_scaled <- scale(data)
+
+# Elbow Method: Compute total within-cluster sum of square
+wss <- sapply(1:10, function(k) {
+  kmeans(data_scaled, centers = k, nstart = 25)$tot.withinss
+})
+
+# Plot the Elbow Curve
+plot(1:10, wss, type = "b", pch = 19, frame = FALSE, 
+     xlab = "Number of clusters K",
+     ylab = "Total within-cluster sum of squares")
+```
+
+```{r}
+set.seed(123)
+km.res <- kmeans(data, 4, nstart = 25)
+print(km.res)
+```
+
+```{r}
+aggregate(data_ori, by=list(cluster=km.res$cluster), mean)
+cluster_data <- cbind(data_ori, cluster = km.res$cluster)
+```
+
+```{r}
+fviz_cluster(km.res, data = data_scaled,
+             palette = c("#2E9FDF", "#00AFBB", "#E7B800", "#FC4E07"), 
+             ellipse.type = "euclid", # Concentration ellipse
+             star.plot = TRUE, # Add segments from centroids to items
+             repel = TRUE, # Avoid label overplotting (slow)
+             ggtheme = theme_minimal()
+             )
+```
+
