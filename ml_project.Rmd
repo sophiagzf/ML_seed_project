@@ -13,12 +13,6 @@ test <- read.csv("test_data_x.csv")
 ```
 
 ```{r}
-reduced_data_train <- train[c("Area", "MinorAxisLength", "ShapeFactor2", "ShapeFactor3", "Y")]
-reduced_data_test <- test[c("Area", "MinorAxisLength", "ShapeFactor2", "ShapeFactor3")]
-```
-
-
-```{r}
 head(train)
 ```
 ```{r}
@@ -88,7 +82,7 @@ print(ggplot(data = melt(cor_matrix),
   labs(x='', y=''))
 ```
 
-# correlation plot
+# Correlation plots
 
 ```{r}
 library(corrplot)
@@ -129,14 +123,30 @@ for (col in names(train_std)) {
 
 ```
 
+
+```{r}
+library(GGally)
+library(reshape2)
+print(sapply(train_std, function(x) sum(is.na(x))))
+for (col in names(train_std)) {
+  if (is.numeric(train_std[[col]])) {
+    print(ggplot(train_std, aes_string(x=col)) + 
+            geom_histogram(bins=30, fill="grey", color="black") + 
+      stat_bin(geom = "line", bins = 30, aes(y = ..count..), color = "red") + 
+      ggtitle(paste("Histogram of", col)) + theme_minimal())
+  }
+}
+```
+
+
 # Split the original data
 
 ```{r}
 set.seed(123456)
 library(caret)
 index <- createDataPartition(train_std$Y, p = 0.8, list = FALSE)
-train_df <- train_std[index, ]
-validation_df <- train_std[-index, ]
+train_df <- train[index, ]
+validation_df <- train[-index, ]
 train_control <- trainControl(method = "cv", number = 10)
 nrow(train_df)
 nrow(validation_df)
@@ -144,29 +154,71 @@ nrow(validation_df)+nrow(train_df)
 ```
 
 
-# Split the reduced data
+# Variable Selection 
 
+## Lasso on standardized dataset
 ```{r}
-reduced_data_train$Y <- as.factor(reduced_data_train$Y)
-numeric_data <- reduced_data_train[, sapply(reduced_data_train, is.numeric)]
-reduced_data_train_std <- as.data.frame(
-  scale(numeric_data[, !colnames(numeric_data) %in% "Y"]))
-reduced_data_train_std$Y <- reduced_data_train$Y
+library(glmnet)
+x <- as.matrix(data[, -which(names(data) == "Y")])
+y <- data$Y
+cv_fit <- cv.glmnet(x, y, alpha = 1) #alpha = 1 for lasso
+best_lambda <- cv_fit$lambda.min
+best_lambda
+modeling <- glmnet(x, y, family = "gaussian", alpha = 1, lambda = best_lambda)
+coef <- coef(modeling)
+coef
+plot(cv_fit$glmnet.fit, "lambda", label = "TRUE")
+coef_table <- as.data.frame.matrix(coef)
+coef_table
+```
+
+
+## Ridge on standardized dataset
+```{r}
+library(glmnet)
+x <- as.matrix(data[, -which(names(data) == "Y")])
+y <- data$Y
+cv_fit <- cv.glmnet(x, y, alpha = 0) # alpha = 0 for Ridge
+best_lambda <- cv_fit$lambda.min
+cat("best_lambda:", best_lambda)
+modeling <- glmnet(x, y, family = "gaussian", alpha = 0, lambda = best_lambda)
+coef <- coef(modeling)
+coef
+plot(cv_fit$glmnet.fit, "lambda", label = "TRUE")
+coef_table <- as.data.frame.matrix(coef)
+coef_table
 ```
 
 
 
+## pca on standardized dataset
 ```{r}
-set.seed(123456)
-library(caret)
-index <- createDataPartition(reduced_data_train_std$Y, p = 0.8, list = FALSE)
-reduced_data_train_df <- reduced_data_train_std[index, ]
-reduced_data_val_df <- reduced_data_train_std[-index, ]
-train_control <- trainControl(method = "cv", number = 10)
-nrow(reduced_data_train_df)
-nrow(reduced_data_val_df)
-nrow(reduced_data_val_df)+nrow(reduced_data_train_df)
+library(factoextra)
+library(pls)
+pca_result <- prcomp(pca.data, center = TRUE, scale. = TRUE)
+summary(pca_result)
+fviz_eig(pca_result, addlabels = TRUE)
+fviz_pca_var(pca_result, col.var = "black")
+
+autoplot(pca_result, data = data, color = 'Y')  # If 'Y' is the target variable
+plot(pca_result)
+pca_data <- as.data.frame(pca_result$x)
+pca_data
+
+pcr.data <- data
+pcr.data$Y <- as.numeric(pcr.data$Y)
+pcr.fit <- pcr(Y~., data = pcr.data, scale = TRUE, validation = "CV")
+summary(pcr.fit)
 ```
+
+```{r}
+data$Y <- factor(data$Y)
+ols.model <- glm(Y ~ ., family = "binomial", data = data)
+summary(ols.model)
+```
+
+
+
 
 # run random forest
 
@@ -185,24 +237,6 @@ predictions_train <- predict(model_rf, train_df)
 predictions_val <- predict(model_rf, validation_df)
 confusionMatrix(predictions_val, validation_df$Y)
 misclass_rate_rf <- 1 - sum(predictions_val == validation_df$Y) / nrow(validation_df)
-print(paste("Misclassification Rate (RF):", misclass_rate_rf))
-```
-
-
-# Run rf w/ reduced dataset
-```{r}
-model_rf <- train(Y~., 
-                  data = reduced_data_train_df, 
-                  method = "rf", 
-                  trControl = train_control)
-print(model_rf)
-predictions_train <- predict(model_rf, reduced_data_train_df)
-```
-
-```{r}
-predictions_val <- predict(model_rf, reduced_data_val_df)
-confusionMatrix(predictions_val, reduced_data_val_df$Y)
-misclass_rate_rf <- 1 - sum(predictions_val == reduced_data_val_df$Y) / nrow(reduced_data_val_df)
 print(paste("Misclassification Rate (RF):", misclass_rate_rf))
 ```
 
@@ -260,59 +294,7 @@ print(paste("Misclassification Rate (XGBoost):", misclass_rate_xgb))
 
 ```
 
-
-# Run xgboost w/ reduced dataset
-
-```{r}
-library(xgboost)
-
-
-reduced_data_train_df$Y <- as.numeric(as.factor(reduced_data_train_df$Y)) - 1
-features <- as.matrix(reduced_data_train_df[, setdiff(names(reduced_data_train_df), "Y")])
-labels <- reduced_data_train_df$Y
-dtrain <- xgb.DMatrix(data = features, label = labels)
-
-reduced_data_val_df$Y <- as.numeric(as.factor(reduced_data_val_df$Y)) - 1
-validation_features <- as.matrix(reduced_data_val_df[, setdiff(names(reduced_data_val_df), "Y")])
-validation_labels <- reduced_data_val_df$Y
-dval <- xgb.DMatrix(data = validation_features, label = validation_labels)
-
-params <- list(
-  booster = "gbtree",
-  objective = "binary:logistic",
-  eval_metric = "logloss",
-  eta = 0.3,
-  gamma = 0,
-  max_depth = 6
-)
-
-cv_results <- xgb.cv(
-  params = params,
-  data = dtrain,
-  nrounds = 1000,
-  nfold = 10,
-  showsd = TRUE,
-  stratified = TRUE,
-  print_every_n = 10,
-  early_stopping_rounds = 10,
-  maximize = FALSE
-)
-print(cv_results)
-
-final_model <- xgb.train(
-  params = params,
-  data = dtrain,
-  nrounds = cv_results$best_iteration
-)
-predictions <- predict(final_model, dval)
-predicted_labels <- max.col(predictions, ties.method = "first") - 1  
-accuracy <- sum(validation_labels == predicted_labels) / length(validation_labels)
-print(paste("Accuracy:", accuracy))
-misclass_rate_xgb <- 1 - accuracy
-print(paste("Misclassification Rate (XGBoost):", misclass_rate_xgb))
-
-```
-# svm 
+# SVM
 
 ```{r}
 svm_model_radical <- svm(Y ~ ., data = train_data, kernel="radial", cost=1000, gamma=0.1)
@@ -347,40 +329,12 @@ svm_predictions_test
 ```
 
 
-# SVM
-
-```{r}
-library(e1071)
-data <- train
-data[,-which(names(data) == "Y")] <- scale(data[,-which(names(data) == "Y")])
-index <- sample(1:nrow(data), round(0.8 * nrow(data)))
-train_data <- data[index, ]
-validation_data <- data[-index, ]
-svm_model <- svm(Y ~ ., data = train_data, 
-                 kernel="radial", cost=10, gamma=0.1)
-predictions <- predict(svm_model, 
-                       newdata=validation_data[,-which(names(validation_data) == "Y")])
-accuracy <- sum(predictions == validation_data$Y) / nrow(validation_data)
-print(paste("Accuracy:", accuracy))
-conf_matrix <- table(Predicted = predictions, Actual = validation_data$Y)
-print(conf_matrix)
-misclass_rate_svm <- 1 - accuracy
-print(paste("Misclassification Rate (SVM):", misclass_rate_svm))
-
-test_data_preprocessed <- scale(test[, sapply(test, is.numeric)])
-svm_predictions_test <- predict(svm_model, newdata=test_data_preprocessed)
-svm_predictions_test
-
-
-```
-
-# K-clustering
+# K-mean clustering
 
 ```{r}
 library(cluster)
-set.seed(123456)
 library(factoextra)
-
+set.seed(123456)
 data_for_clustering <- scale(train[, sapply(train, is.numeric)])
 wss <- (nrow(data_for_clustering)-1)*sum(apply(data_for_clustering,2,var))
 for (i in 2:15) {
@@ -390,11 +344,152 @@ for (i in 2:15) {
 plot(1:15, wss, type="b", 
      xlab="Number of Clusters", 
      ylab="Within groups sum of squares")
-k <- 2
+k <- 10
 km_out <- kmeans(data_for_clustering, 
                  centers=k, nstart=25)
 train$cluster <- as.factor(km_out$cluster)
 table(train$cluster)
 fviz_cluster(km_out, data = data_for_clustering)
+print(km_out)
+```
+```{r}
+# Read the dataset
+data_ori <- read.csv("train_data.csv")
+
+# Remove the class label if it exists (assuming 'Y' is the class label)
+data <- data_ori[, -which(names(data_ori) == "Y")]
+
+# Standardize the data
+data_scaled <- scale(data)
+
+# Elbow Method: Compute total within-cluster sum of square
+wss <- sapply(1:10, function(k) {
+  kmeans(data_scaled, centers = k, nstart = 25)$tot.withinss
+})
+
+# Plot the Elbow Curve
+plot(1:10, wss, type = "b", pch = 19, frame = FALSE, 
+     xlab = "Number of clusters K",
+     ylab = "Total within-cluster sum of squares")
+set.seed(123)
+km.res <- kmeans(data_scaled, 4, nstart = 25)
+print(km.res)
+```
+
+
+
+# LDA 
+
+```{r}
+library(tidyverse)
+library(modelr)
+library(broom)
+library(ISLR)
+library(ROCR)
+library(MASS)
+library(caret)
+library(ggplot2)
+library(klaR)
+library(dplyr)
+```
+
+
+```{r}
+data <- read_csv("train_data.csv")
+reduced_data <- data[c("Area", "MinorAxisLength", "ShapeFactor2", "ShapeFactor3", "Y")]
+scaled_reduced_data <- scale(reduced_data[c("Area", "MinorAxisLength", "ShapeFactor2", "ShapeFactor3")])
+scaled_reduced_data <- as.data.frame(scaled_reduced_data)
+scaled_reduced_data["Y"] <- data$Y
+
+# Assuming 'Y' is the target variable and it's a factor
+data$Y <- as.factor(data$Y)
+
+# Prepare training control
+train_control <- trainControl(method = "cv", number = 5)  # 5-fold cross-validation
+
+# LDA Model
+set.seed(123)
+lda_model <- train(Y ~ ., data = data, method = "lda", trControl = train_control)
+print(lda_model)
+
+# QDA Model
+set.seed(123)
+qda_model <- train(Y ~ ., data = data, method = "qda", trControl = train_control)
+print(qda_model)
 
 ```
+
+lda on whole data
+```{r}
+set.seed(123)
+ind <- sample(2, nrow(data),
+              replace = TRUE,
+              prob = c(0.8, 0.2))
+training <- data[ind==1,]
+testing <- data[ind==2,]
+```
+
+```{r}
+linear <- lda(Y~., training)
+linear
+```
+
+```{r}
+p <- predict(linear, training)
+ldahist(data = p$x[,1], g = training$Y)
+```
+
+classification rate
+```{r}
+p1 <- predict(linear, training)$class
+tab <- table(Predicted = p1, Actual = training$Y)
+tab
+```
+
+```{r}
+sum(diag(tab))/sum(tab)
+```
+
+seperation graph
+```{r}
+pca <- prcomp(training[, -which(names(training) == "Y")], scale. = TRUE)
+pca_data <- data.frame(Y = training$Y, PC1 = pca$x[,1], PC2 = pca$x[,2])
+```
+
+```{r}
+ggplot(pca_data, aes(x = PC1, y = PC2, color = Y)) +
+    geom_point() +
+    scale_y_continuous(limits = c(-10, 10)) +
+    theme_minimal()
+```
+
+lda on reduced data
+```{r}
+set.seed(123)
+ind_sca <- sample(2, nrow(scaled_reduced_data),
+              replace = TRUE,
+              prob = c(0.8, 0.2))
+training_scale <- scaled_reduced_data[ind_sca==1,]
+testing_sclae <- scaled_reduced_data[ind_sca==2,]
+```
+
+```{r}
+linear_scale <- lda(Y~., training_scale)
+linear_scale
+```
+
+```{r}
+p_scale <- predict(linear_scale, training_scale)
+ldahist(data = p_scale$x[,1], g = training_scale$Y)
+```
+
+```{r}
+p1_scale <- predict(linear_scale, training_scale)$class
+tab_scale <- table(Predicted = p1_scale, Actual = training_scale$Y)
+tab_scale
+```
+
+```{r}
+sum(diag(tab_scale))/sum(tab_scale)
+```
+
