@@ -1,0 +1,258 @@
+---
+title: "ml_original"
+author: "Suyeon Song"
+date: "2024-04-22"
+output: html_document
+---
+
+# 1. Setup
+```{r}
+set.seed(123456)
+library(tidyverse)
+library(caret)
+library(glmnet)
+library(xgboost)
+library(cluster)
+library(factoextra)
+library(GGally)
+library(reshape2)
+library(MASS)
+library(e1071)
+library(ggplot2)
+```
+
+```{r}
+train <- read.csv("train_data.csv")
+test <- read.csv("test_data_x.csv")
+```
+
+```{r}
+head(train)
+head(test)
+```
+
+# 2. Exploratory Data Analysis (EDA)
+
+## 1) Class Distribution
+```{r}
+y1_count <- sum(train$Y == "1")
+y0_count <- sum(train$Y == "0")
+prop_y1 <- y1_count / (y1_count + y0_count)
+prop_y0 <- y0_count / (y1_count + y0_count)
+
+cat("count of Y=1 in train dataset:", y1_count, "\n")
+cat("proportion of Y=1 in train dataset:", prop_y1, "\n")
+cat("count of Y=0 in train dataset:", y0_count, "\n")
+cat("proportion of Y=0 in train dataset:", prop_y0, "\n")
+```
+
+## 2) Variable Types
+```{r}
+str(train)
+```
+
+## 3) Distribution Plots
+```{r, fig.width=8}
+train$Y <- as.factor(train$Y)
+numeric_columns <- sapply(train, is.numeric)
+for (col in names(train)[numeric_columns]) {
+  average <- mean(train[[col]], na.rm = TRUE)
+  p <- ggplot(train, aes_string(x = col)) +
+    geom_histogram(bins = 30, fill = "lightgrey", color = "black") +
+    geom_vline(aes(xintercept = average), color = "red", 
+               linetype = "dashed", size = 1) +
+    ggtitle(paste("Histogram of", col)) +
+    theme_minimal()
+  print(p)
+}
+
+p <- ggplot(train, aes(x = Y)) +
+    geom_bar(fill = "lightgrey", color = "black") +
+    labs(title = "Distribution of Y", x = "Category", y = "Count") +
+    theme_minimal()
+print(p)
+```
+
+# 3. Data Partition
+
+```{r}
+# original
+index <- createDataPartition(train$Y, p = 0.8, list = FALSE)
+train_df <- train[index, ]
+val_df <- train[-index, ]
+# cross-validation (10)
+train_control <- trainControl(method = "cv", number = 10)
+```
+
+# 4. Model Training
+
+## 1) Random Forest
+```{r}
+model_rf <- train(Y ~ ., data = train_df, method = "rf", trControl = train_control)
+pred_train_rf <- predict(model_rf, train_df)
+pred_val_rf <- predict(model_rf, val_df)
+conf_matrix_rf <- confusionMatrix(pred_val_rf, val_df$Y)
+print(conf_matrix_rf)
+accuracy_rate_rf <- sum(pred_val_rf == val_df$Y) / nrow(val_df)
+misclass_rate_rf <- 1 - accuracy_rate_rf
+print(accuracy_rate_rf)
+
+```
+
+## 2) xgboost
+```{r}
+train_df2 <- train_df
+validation_df2 <- val_df
+
+train_df2$Y <- as.numeric(as.factor(train_df2$Y)) - 1 
+features <- as.matrix(train_df2[, setdiff(names(train_df2), "Y")])
+labels <- train_df2$Y
+dtrain <- xgb.DMatrix(data = features, label = labels)
+
+validation_df2$Y <- as.numeric(as.factor(validation_df2$Y)) - 1
+validation_features <- as.matrix(validation_df2[, setdiff(names(validation_df2), "Y")])
+validation_labels <- validation_df2$Y
+dval <- xgb.DMatrix(data = validation_features, label = validation_labels)
+
+params <- list(
+  booster = "gbtree",
+  objective = "binary:logistic",
+  eval_metric = "logloss",
+  gamma = 0
+)
+
+cv_results <- xgb.cv(
+  params = params,
+  data = dtrain,
+  nrounds = 1000,
+  nfold = 10,
+  showsd = TRUE,
+  stratified = TRUE,
+  print_every_n = 10,
+  early_stopping_rounds = 10,
+  maximize = FALSE
+)
+print(cv_results)
+
+final_model <- xgb.train(
+  params = params,
+  data = dtrain,
+  nrounds = cv_results$best_iteration
+)
+predictions <- predict(final_model, dval)
+predicted_labels <- max.col(predictions, ties.method = "first") - 1  
+accuracy_xgb <- sum(validation_labels == predicted_labels) / length(validation_labels)
+print(paste("Accuracy:", accuracy_xgb))
+misclass_rate_xgb <- 1 - accuracy_xgb
+print(paste("Misclassification Rate (XGBoost):", misclass_rate_xgb))
+
+```
+
+## 3) SVM 
+```{r}
+svm_model_radical <- svm(Y ~ ., data = train_df, kernel="radial", cost=100, gamma=0.1)
+svm_model_poly <- svm(Y ~ ., data = train_df, kernel="polynomial", cost=100, gamma=0.1)
+svm_model_linear <- svm(Y ~ ., data = train_df, kernel="linear", cost=100, gamma=0.1)
+
+pred_radical <- predict(svm_model_radical, newdata=val_df)
+pred_poly <- predict(svm_model_poly, newdata=val_df)
+pred_linear <- predict(svm_model_linear, newdata=val_df)
+
+conf_matrix_radical <- table(Predicted = pred_radical, Actual = val_df$Y)
+print("Confusion Matrix for SVM with Radical Kernel:")
+print(conf_matrix_radical)
+
+conf_matrix_radical <- table(Predicted = pred_poly, Actual = val_df$Y)
+print("Confusion Matrix for SVM with Polynomial:")
+print(conf_matrix_radical)
+
+conf_matrix_radical <- table(Predicted = pred_linear, Actual = val_df$Y)
+print("Confusion Matrix for SVM with linear:")
+print(conf_matrix_radical)
+
+accuracy_radical <- sum(pred_radical == val_df$Y) / nrow(val_df)
+accuracy_poly <- sum(pred_poly == val_df$Y) / nrow(val_df)
+accuracy_linear <- sum(pred_linear == val_df$Y) / nrow(val_df)
+
+print(paste("Accuracy of SVM model with Radical:", accuracy_radical))
+print(paste("Accuracy of SVM model with Polynomial:", accuracy_poly))
+print(paste("Accuracy of SVM model with Linear:", accuracy_linear))
+
+misclass_rate_radical <- 1 - mean(pred_radical == val_df$Y)
+print(paste("Misclassification Rate (SVM with Radical):", misclass_rate_radical))
+misclass_rate_poly <- 1 - mean(pred_poly == val_df$Y)
+print(paste("Misclassification Rate (SVM with Radical):", misclass_rate_poly))
+misclass_rate_linear <- 1 - mean(pred_linear == val_df$Y)
+print(paste("Misclassification Rate (SVM with Radical):", misclass_rate_linear))
+
+```
+
+## 4) LDA and QDA
+```{r}
+# LDA Model
+train_control <- trainControl(method = "cv", number = 10) 
+lda_model <- train(Y ~ ., data = train_df, method = "lda", 
+                   trControl = train_control)
+print(lda_model)
+pred_lda <- predict(lda_model, newdata=val_df)
+confusionMatrix(pred_lda, val_df$Y)
+accuracy_lda <- sum(pred_lda == val_df$Y) / nrow(val_df)
+```
+
+```{r}
+# QDA Model
+qda_model <- train(Y ~ ., data = train_df, method = "qda", 
+                   trControl = train_control)
+print(qda_model)
+pred_qda <- predict(qda_model, newdata=val_df)
+confusionMatrix(pred_qda, val_df$Y)
+accuracy_qda <- sum(pred_qda == val_df$Y) / nrow(val_df)
+```
+
+
+## 5) Binary Logistic Regression
+```{r}
+logistic_model <- glm(Y ~ ., data = train_df, family = binomial())
+summary(logistic_model)
+pred_prob <- predict(logistic_model, newdata = val_df, type = "response")
+pred_class <- ifelse(pred_prob > 0.5, 1, 0)
+pred_class <- as.factor(pred_class)
+confusion_matrix_blr <- confusionMatrix(pred_class, val_df$Y)
+print(confusion_matrix_blr)
+accuracy_blr <- sum(pred_class == val_df$Y) / nrow(val_df)
+accuracy_blr
+```
+
+# 5. Result
+
+## 1) Result on validation dataset.
+```{r}
+cat("Accuracy rate of Random Forest:", accuracy_rate_rf, "\n")
+cat("Accuracy rate of XGBoost:", accuracy_xgb, "\n")
+cat("Accuracy of SVM model with Radical:", accuracy_radical, "\n")
+cat("Accuracy of SVM model with Polynomial:", accuracy_poly, "\n")
+cat("Accuracy of SVM model with Linear:", accuracy_linear, "\n")
+cat("Accuracy of LDA model:", accuracy_lda, "\n")
+cat("Accuracy of QDA model:", accuracy_qda, "\n")
+cat("Accuracy of Binary Logistic Regression:", accuracy_blr, "\n")
+```
+
+## 2) Result on test dataset. 
+
+```{r}
+test_df <- test
+pred <- predict(logistic_model, newdata=test_df, type = "response")
+pred_class <- ifelse(pred > 0.5, 1, 0)
+pred_class <- as.factor(pred_class)
+y.guesses <- c(pred_class)
+y.guesses
+table(y.guesses)
+nrow(test_df)
+
+test.acc <- accuracy_blr
+team.name <- "Suyeon_Song, Sophia_Gan"
+save(list=c("y.guesses","test.acc","team.name"),file="stat462project.RData")
+```
+
+
+
