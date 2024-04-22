@@ -95,8 +95,8 @@ print(coefficients_df)
 plot(cv_fit)
 selected_features <- rownames(coefficients_df)[-1] 
 reduced_dataset <- train[, c(selected_features, "Y")]
-str(reduced_dataset)
-reduced_dataset$Y <- as.factor(reduced_dataset$Y)
+reduced_dataset["Y"] <- train$Y
+head(reduced_dataset)
 ```
 
 
@@ -268,15 +268,13 @@ cat("Accuracy of Binary Logistic Regression:", accuracy_blr, "\n")
 
 ```{r}
 test_df <- test
-pred <- predict(logistic_model, newdata=test_df, type = "response")
-pred_class <- ifelse(pred > 0.5, 1, 0)
-pred_class <- as.factor(pred_class)
+pred<- predict(svm_model_poly, newdata=test_df)
 y.guesses <- c(pred_class)
 y.guesses
 table(y.guesses)
 nrow(test_df)
 
-test.acc <- accuracy_blr
+test.acc <- accuracy_poly
 team.name <- "Suyeon_Song, Sophia_Gan"
 save(list=c("y.guesses","test.acc","team.name"),file="stat462project.RData")
 ```
