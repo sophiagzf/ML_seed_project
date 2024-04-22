@@ -157,7 +157,7 @@ print(accuracy_rate_rf)
 ## 2) xgboost
 ```{r}
 train_df2 <- train_df
-validation_df2 <- validation_df
+validation_df2 <- val_df
 
 train_df2$Y <- as.numeric(as.factor(train_df2$Y)) - 1 
 features <- as.matrix(train_df2[, setdiff(names(train_df2), "Y")])
