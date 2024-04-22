@@ -91,22 +91,26 @@ head(train_tmp)
 ## 2) Lasso
 
 ```{r}
-library(glmnet)
-x <- as.matrix(train_tmp[, -which(names(train) == "Y")])
+x <- as.matrix(train_tmp) 
 y <- train$Y
 y_binary <- as.numeric(as.character(y)) - 1
 cv_fit <- cv.glmnet(x, y_binary, family = "binomial", alpha = 1)
+
 best_lambda <- cv_fit$lambda.min
 model_lasso <- glmnet(x, y_binary, family = "binomial", alpha = 1, lambda = best_lambda)
 coefficients <- coef(model_lasso, s = best_lambda)
-coefficients <- as.matrix(coef(model_lasso, s = "lambda.min"))
+coefficients <- as.matrix(coefficients)
 coefficients_df <- as.data.frame(coefficients)
-coefficients_df <- coefficients_df[abs(coefficients_df[,1]) > 1e-4, , drop = FALSE]
 names(coefficients_df)[1] <- "Coefficient"
+
+coefficients_df <- coefficients_df[abs(coefficients_df$Coefficient) > 1e-4, , drop = FALSE]
+
 print(coefficients_df)
 plot(cv_fit)
-selected_features <- rownames(coefficients_df)[-1] 
-reduced_dataset <- train[, c(selected_features, "Y")]
+
+selected_features <- rownames(coefficients_df)[-1]
+
+reduced_dataset <- train_tmp[, c(selected_features)]
 reduced_dataset["Y"] <- train$Y
 head(reduced_dataset)
 
@@ -279,17 +283,31 @@ cat("Accuracy of Binary Logistic Regression:", accuracy_blr, "\n")
 
 ## 2) Result on test dataset. 
 
+
 ```{r}
 test_df <- test
-pred <- predict(model_rf, newdata=test_df)
+head(test_df)
+pred <- predict(svm_model_poly, newdata=test_df)
 y.guesses <- c(pred)
 table(y.guesses)
 nrow(test_df)
 print(y.guesses)
-test.acc <- accuracy_rate_rf
+test.acc <- accuracy_poly
 team.name <- "Suyeon_Song, Sophia_Gan"
 save(list=c("y.guesses","test.acc","team.name"),file="stat462project.RData")
 ```
 
+```{r}
+test_df2 <- scale(test)
+head(test_df2)
+pred <- predict(svm_model_poly, newdata=test_df2)
+y.guesses <- c(pred)
+table(y.guesses)
+nrow(test_df2)
+print(y.guesses)
+test.acc <- accuracy_poly
+team.name <- "Suyeon_Song, Sophia_Gan"
+save(list=c("y.guesses","test.acc","team.name"),file="stat462project.RData")
+```
 
 
