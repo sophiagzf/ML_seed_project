@@ -272,14 +272,30 @@ cat("Accuracy of Binary Logistic Regression:", accuracy_blr, "\n")
 
 ## 2) Result on test dataset. 
 
-```{r}
-test_df <- scale(test)
 
+```{r}
+test_df <- test
+head(test_df)
 pred<- predict(svm_model_poly, newdata=test_df)
 y.guesses <- c(pred)
 y.guesses
 table(y.guesses)
 nrow(test_df)
+
+test.acc <- accuracy_poly
+team.name <- "Suyeon_Song, Sophia_Gan"
+save(list=c("y.guesses","test.acc","team.name"),file="stat462project.RData")
+```
+
+
+```{r}
+test_df2 <- scale(test)
+head(test_df2)
+pred<- predict(svm_model_poly, newdata=test_df2)
+y.guesses <- c(pred)
+y.guesses
+table(y.guesses)
+nrow(test_df2)
 
 test.acc <- accuracy_poly
 team.name <- "Suyeon_Song, Sophia_Gan"
