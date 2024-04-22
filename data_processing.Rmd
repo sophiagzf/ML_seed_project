@@ -1,0 +1,30 @@
+---
+title: "data_processing"
+author: "Sophia Gan"
+date: "2024-04-22"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+data <- read.csv("train_data.csv")
+lasso_data <- data[c("Area", "MinorAxisLength", "ShapeFactor2", "ShapeFactor3", "Y")]
+lasso_scaled <- lasso_data
+few_scaled_all <- data
+str(data)
+```
+
+```{r}
+few_scaled_all[, c("Area", "Perimeter", "MajorAxisLength", "MinorAxisLength", "ConvexArea", "EquivDiameter")] <- scale(data[, c("Area", "Perimeter", "MajorAxisLength", "MinorAxisLength", "ConvexArea", "EquivDiameter")])
+
+lasso_scaled[, c("Area", "MinorAxisLength")] <- scale(lasso_scaled[, c("Area", "MinorAxisLength")])
+
+write.csv(few_scaled_all, "few_scaled_all.csv", row.names = FALSE)
+write.csv(lasso_scaled, "lasso_scaled.csv", row.names = FALSE)
+```
+
+
+
