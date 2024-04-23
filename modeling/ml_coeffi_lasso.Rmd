@@ -149,27 +149,22 @@ train_df2 <- train_df
 validation_df2 <- val_df
 
 train_df2$Y <- as.numeric(as.factor(train_df2$Y)) - 1 
+validation_df2$Y <- as.numeric(as.factor(validation_df2$Y)) - 1
+
 features <- as.matrix(train_df2[, setdiff(names(train_df2), "Y")])
 labels <- train_df2$Y
 dtrain <- xgb.DMatrix(data = features, label = labels)
 
-validation_df2$Y <- as.numeric(as.factor(validation_df2$Y)) - 1
 validation_features <- as.matrix(validation_df2[, setdiff(names(validation_df2), "Y")])
 validation_labels <- validation_df2$Y
 dval <- xgb.DMatrix(data = validation_features, label = validation_labels)
-
-params <- list(
-  booster = "gbtree",
-  objective = "binary:logistic",
-  eval_metric = "logloss",
-  gamma = 0
-)
+params <- list(objective = "binary:logistic")
 
 cv_results <- xgb.cv(
   params = params,
   data = dtrain,
-  nrounds = 1000,
-  nfold = 10,
+  nrounds = 100,
+  nfold = 5,
   showsd = TRUE,
   stratified = TRUE,
   print_every_n = 10,
@@ -177,18 +172,21 @@ cv_results <- xgb.cv(
   maximize = FALSE
 )
 print(cv_results)
-
 final_model <- xgb.train(
   params = params,
   data = dtrain,
-  nrounds = cv_results$best_iteration
+  nrounds = cv_results$best_ntreelimit
 )
+
 predictions <- predict(final_model, dval)
-predicted_labels <- max.col(predictions, ties.method = "first") - 1  
+predicted_labels <- ifelse(predictions > 0.5, 1, 0)
+
 accuracy_xgb <- sum(validation_labels == predicted_labels) / length(validation_labels)
+misclass_rate_xgb = 1 - accuracy_xgb
+
 print(paste("Accuracy:", accuracy_xgb))
-misclass_rate_xgb <- 1 - accuracy_xgb
 print(paste("Misclassification Rate (XGBoost):", misclass_rate_xgb))
+
 
 ```
 
